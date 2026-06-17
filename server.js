@@ -35,6 +35,7 @@ const resumeRoutes = require("./routes/resumeRoutes");
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173", // Add your frontend port
+  "https://nexus.prosummo.com",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
