@@ -100,9 +100,13 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/resumes", resumeRoutes);
-app.use("api/user-resume", resumeRoutes);
-app.use("api/resumes/user-resumes", resumeRoutes);
-app.use("api/create-resumes", resumeRoutes);
+app.use("/api/user-resume", resumeRoutes);
+app.use("/api/resumes/user-resumes", resumeRoutes);
+app.use("/api/create-resumes", resumeRoutes);
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 const PORT = process.env.PORT || 5000;
 
