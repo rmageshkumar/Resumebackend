@@ -39,6 +39,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
+console.log("Allowed origins:", allowedOrigins);
+
 const app = express();
 
 // Middleware
