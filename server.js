@@ -11,6 +11,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const authRoutes = require("./routes/authRoutes");
 const billingRoutes = require("./routes/billingRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const resumeParserRoutes = require("./routes/resumeParserRoutes");
 
 // Basic env validation
 const missingCritical = [];
@@ -94,6 +95,7 @@ app.use((req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/resume-parser", resumeParserRoutes);
 
 app.get("/", (req, res) => {
   res.send("Welcome to the Authentication API!");
