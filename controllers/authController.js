@@ -8,28 +8,59 @@ const {
 const { verifyCaptcha } = require("../config/captcha");
 
 exports.register = async (req, res) => {
-  const { name, email, password, captchaToken } = req.body;
+  try {
+    const { name, email, password, captchaToken } = req.body;
 
-  console.log("reg request", req.body);
-  // const isCaptchaValid = await verifyCaptcha(captchaToken);
-  // if (!isCaptchaValid)
-  //   return res.status(400).json({ message: "Invalid captcha" });
-  const existingUser = await User.findUserByEmail(email);
-  if (existingUser)
-    return res.status(400).json({ message: "User already exists" });
+    console.log("Register request received:", email);
+    if (!name || !email || !password) {
+      return res
+        .status(400)
+        .json({ message: "Name, email, and password are required" });
+    }
 
-  const salt = await bcrypt.genSalt(10);
-  const passwordHash = await bcrypt.hash(password, salt);
+    // const isCaptchaValid = await verifyCaptcha(captchaToken);
+    // if (!isCaptchaValid)
+    //   return res.status(400).json({ message: "Invalid captcha" });
+    const existingUser = await User.findUserByEmail(email);
+    if (existingUser)
+      return res.status(400).json({ message: "User already exists" });
 
-  const activationToken = jwt.sign({ email }, process.env.JWT_SECRET, {
-    expiresIn: "1d",
-  });
-  await sendActivationEmail(email, activationToken);
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
 
-  await User.createUser(name, email, passwordHash);
-  res.json({
-    message: "Registration successful. Check email for activation link.",
-  });
+    await User.createUser(name, email, passwordHash);
+
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      try {
+        const activationToken = jwt.sign({ email }, process.env.JWT_SECRET, {
+          expiresIn: "1d",
+        });
+        await sendActivationEmail(email, activationToken);
+      } catch (mailError) {
+        console.error("Activation email failed:", mailError.message);
+        return res.status(201).json({
+          message:
+            "Registration successful, but activation email could not be sent.",
+        });
+      }
+    } else {
+      console.warn("Email credentials not configured; skipping activation email.");
+    }
+
+    return res.status(201).json({
+      message: "Registration successful. Check email for activation link.",
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    return res.status(500).json({
+      message: "Registration failed",
+      error: error.message,
+    });
+  }
 };
 
 exports.login = async (req, res) => {

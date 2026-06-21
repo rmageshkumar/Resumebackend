@@ -20,7 +20,9 @@ async function testDBConnection() {
     connection.release(); // Release the connection back to the pool
   } catch (err) {
     console.error("❌ MySQL Connection Failed:", err.message);
-    process.exit(1); // Exit if connection fails
+    console.error(
+      "Server will keep running so health checks can pass; database-backed routes may fail until MySQL is reachable.",
+    );
   }
 }
 
