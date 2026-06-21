@@ -38,30 +38,27 @@ exports.register = async (req, res) => {
 
     await User.createUser(name, normalizedEmail, passwordHash);
 
+    const response = res.status(201).json({
+      message: "Registration successful. Check email for activation link.",
+    });
+
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      try {
-        const activationToken = jwt.sign(
-          { email: normalizedEmail },
-          process.env.JWT_SECRET,
-          {
-            expiresIn: "1d",
-          },
-        );
-        await sendActivationEmail(normalizedEmail, activationToken);
-      } catch (mailError) {
+      const activationToken = jwt.sign(
+        { email: normalizedEmail },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "1d",
+        },
+      );
+
+      sendActivationEmail(normalizedEmail, activationToken).catch((mailError) => {
         console.error("Activation email failed:", mailError.message);
-        return res.status(201).json({
-          message:
-            "Registration successful, but activation email could not be sent.",
-        });
-      }
+      });
     } else {
       console.warn("Email credentials not configured; skipping activation email.");
     }
 
-    return res.status(201).json({
-      message: "Registration successful. Check email for activation link.",
-    });
+    return response;
   } catch (error) {
     console.error("Registration error:", error);
     if (error.code === "ER_DUP_ENTRY") {
