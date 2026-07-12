@@ -5,6 +5,7 @@ const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
 const path = require("path");
+const rateLimit = require("express-rate-limit");
 // Load environment variables early so other modules can read them
 dotenv.config({ path: path.join(__dirname, ".env") });
 
@@ -12,6 +13,39 @@ const authRoutes = require("./routes/authRoutes");
 const billingRoutes = require("./routes/billingRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const resumeParserRoutes = require("./routes/resumeParserRoutes");
+
+// Rate limiters
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { message: "Too many requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  message: { message: "Too many AI requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  message: { message: "Too many requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const parserLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { message: "Too many file parsing requests. Limit is 10 per hour." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Basic env validation
 const missingCritical = [];
@@ -91,11 +125,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/billing", billingRoutes);
-app.use("/api/ai", aiRoutes);
-app.use("/api/resume-parser", resumeParserRoutes);
+// Routes with rate limiting
+app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/billing", apiLimiter, billingRoutes);
+app.use("/api/ai", aiLimiter, aiRoutes);
+app.use("/api/resume-parser", parserLimiter, resumeParserRoutes);
 
 app.get("/", (req, res) => {
   res.send("Welcome to the Authentication API!");

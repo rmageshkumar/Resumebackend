@@ -175,6 +175,80 @@ exports.subscribePlan = async (req, res) => {
   }
 };
 
+/**
+ * Cancel subscription — cancels at Stripe (if applicable) and resets to free plan.
+ */
+exports.cancelSubscription = async (req, res) => {
+  try {
+    const user = req.user;
+    const fullUser = await User.findUserById(user.id);
+
+    // If they have a Stripe subscription, cancel it at Stripe too
+    if (fullUser.stripe_subscription_id && stripe) {
+      try {
+        await stripe.subscriptions.update(fullUser.stripe_subscription_id, {
+          cancel_at_period_end: true,
+        });
+        console.log(
+          `Stripe subscription ${fullUser.stripe_subscription_id} set to cancel at period end.`,
+        );
+      } catch (stripeError) {
+        console.error("Stripe cancellation failed:", stripeError.message);
+        // Continue — don't block downgrade if Stripe fails
+      }
+    }
+
+    // Reset to free plan
+    await User.updateUserSubscription(user.id, {
+      subscription_plan: "free",
+      subscription_status: "inactive",
+    });
+
+    const updatedUser = await User.findUserById(user.id);
+    const { password, ...userWithoutPassword } = updatedUser;
+
+    res.json({
+      success: true,
+      message:
+        "Subscription cancelled. You will continue to have access until the end of your billing period.",
+      user: userWithoutPassword,
+    });
+  } catch (error) {
+    console.error("Failed to cancel subscription:", error);
+    res.status(500).json({ message: "Unable to cancel subscription" });
+  }
+};
+
+/**
+ * Create a Stripe Customer Portal session for managing subscription/billing.
+ */
+exports.createPortalSession = async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(500).json({ message: "Stripe is not configured." });
+    }
+
+    const user = req.user;
+    const fullUser = await User.findUserById(user.id);
+
+    if (!fullUser.stripe_customer_id) {
+      return res
+        .status(400)
+        .json({ message: "No Stripe customer found. Subscribe first." });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: fullUser.stripe_customer_id,
+      return_url: `${process.env.FRONTEND_URL || "http://localhost:5173"}/pricing`,
+    });
+
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error("Failed to create portal session:", error);
+    res.status(500).json({ message: "Unable to open billing portal" });
+  }
+};
+
 exports.purchaseTemplate = async (req, res) => {
   try {
     const { templateId, price } = req.body;

@@ -2,43 +2,64 @@ const express = require("express");
 const passport = require("passport");
 const resumeController = require("../controllers/resumeController");
 const coverController = require("../controllers/coverController");
+const {
+  requirePlan,
+  checkResumeQuota,
+} = require("../middlewares/subscriptionMiddleware");
+const { auditMiddleware } = require("../middlewares/auditLogger");
 
 const router = express.Router();
 
 // Middleware to authenticate all resume routes
 const authenticate = passport.authenticate("jwt", { session: false });
 
-// Cover letter routes (Moved to top to avoid conflict with /:id wildcard)
+// Cover letter routes — Premium only
 router.post(
   "/cover-letters/create",
   authenticate,
-  coverController.createCoverLetter
+  requirePlan("premium"),
+  coverController.createCoverLetter,
+  auditMiddleware("cover-letter.create", "cover-letter"),
 );
-router.get("/cover-letters", authenticate, coverController.getUserCoverLetters);
+router.get(
+  "/cover-letters",
+  authenticate,
+  requirePlan("premium"),
+  coverController.getUserCoverLetters,
+);
 router.get(
   "/cover-letters/:coverId",
   authenticate,
-  coverController.getCoverLetterById
+  requirePlan("premium"),
+  coverController.getCoverLetterById,
 );
 router.put(
   "/cover-letters/:coverId",
   authenticate,
-  coverController.updateCoverLetter
+  requirePlan("premium"),
+  coverController.updateCoverLetter,
 );
 router.delete(
   "/cover-letters/:coverId",
   authenticate,
-  coverController.deleteCoverLetter
+  requirePlan("premium"),
+  coverController.deleteCoverLetter,
 );
 
-// Main resume routes
-router.post("/create-resumes", authenticate, resumeController.createResume);
+// Main resume routes — create-resumes has quota check for free plan
+router.post(
+  "/create-resumes",
+  authenticate,
+  checkResumeQuota,
+  resumeController.createResume,
+  auditMiddleware("resume.create", "resume"),
+);
 router.get("/", authenticate, resumeController.getUserResumes);
 router.get("/:id([a-zA-Z0-9-]+)", authenticate, resumeController.getResumeById);
 router.put(
   "/user-resumes/:id",
   authenticate,
-  resumeController.updateResumeDetail
+  resumeController.updateResumeDetail,
 );
 
 router.delete("/:id", authenticate, resumeController.deleteResumeById);
@@ -46,29 +67,29 @@ router.delete("/:id", authenticate, resumeController.deleteResumeById);
 router.put(
   "/:id/template",
   authenticate,
-  resumeController.updateResumeTemplate
+  resumeController.updateResumeTemplate,
 );
 
 // Custom sections routes
 router.post(
   "/:id/custom-sections",
   authenticate,
-  resumeController.addCustomSection
+  resumeController.addCustomSection,
 );
 router.put(
   "/:id/custom-sections/:sectionId",
   authenticate,
-  resumeController.updateCustomSection
+  resumeController.updateCustomSection,
 );
 router.delete(
   "/:id/custom-sections/:sectionId",
   authenticate,
-  resumeController.deleteCustomSection
+  resumeController.deleteCustomSection,
 );
 router.put(
   "/:id/custom-sections",
   authenticate,
-  resumeController.saveCustomSections
+  resumeController.saveCustomSections,
 );
 
 // Education routes
@@ -76,12 +97,12 @@ router.post("/:id/education", authenticate, resumeController.addEducation);
 router.put(
   "/:id/education/:educationId",
   authenticate,
-  resumeController.updateEducation
+  resumeController.updateEducation,
 );
 router.delete(
   "/:id/education/:educationId",
   authenticate,
-  resumeController.deleteEducation
+  resumeController.deleteEducation,
 );
 
 // Experience routes
@@ -89,13 +110,13 @@ router.post("/:id/experience", authenticate, resumeController.addExperience);
 router.put(
   "/:id/experience/:experienceId",
   authenticate,
-  resumeController.updateExperience
+  resumeController.updateExperience,
 );
 
 router.delete(
   "/:id/experience/:experienceId",
   authenticate,
-  resumeController.deleteExperience
+  resumeController.deleteExperience,
 );
 
 // Skills routes
@@ -104,7 +125,7 @@ router.put("/:id/skills/:skillId", authenticate, resumeController.updateSkill);
 router.delete(
   "/:id/skills/:skillId",
   authenticate,
-  resumeController.deleteSkill
+  resumeController.deleteSkill,
 );
 
 // Language routes
@@ -112,33 +133,39 @@ router.post("/:id/languages", authenticate, resumeController.addLanguage);
 router.put(
   "/:id/languages/:languageId",
   authenticate,
-  resumeController.updateLanguage
+  resumeController.updateLanguage,
 );
 router.delete(
   "/:id/languages/:languageId",
   authenticate,
-  resumeController.deleteLanguage
+  resumeController.deleteLanguage,
 );
 
 // Certification routes
 router.post(
   "/:id/certifications",
   authenticate,
-  resumeController.addCertification
+  resumeController.addCertification,
 );
 router.put(
   "/:id/certifications/:certificationId",
   authenticate,
-  resumeController.updateCertification
+  resumeController.updateCertification,
 );
 router.delete(
   "/:id/certifications/:certificationId",
   authenticate,
-  resumeController.deleteCertification
+  resumeController.deleteCertification,
 );
 
 // Analytics routes
 router.get("/analytics/:id", authenticate, resumeController.getResumeAnalytics);
 router.post("/analytics/view", resumeController.trackResumeView);
+
+// Public resume route (no auth required)
+router.get("/public/:uuid", resumeController.getPublicResume);
+
+// Publish/unpublish resume
+router.put("/:id/publish", authenticate, resumeController.togglePublishStatus);
 
 module.exports = router;

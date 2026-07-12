@@ -8,14 +8,22 @@ const {
   forgotPassword,
   resetPassword,
 } = require("../controllers/authController");
+const {
+  registerValidation,
+  loginValidation,
+  forgotPasswordValidation,
+  resetPasswordValidation,
+  updateProfileValidation,
+  updatePasswordValidation,
+} = require("../middlewares/validators");
 
 const router = express.Router();
 
-router.post("/register", register);
+router.post("/register", registerValidation, register);
 //router.post("/login", login);
 
 // Add timeout and better error handling for login route
-router.post("/login", async (req, res) => {
+router.post("/login", loginValidation, async (req, res) => {
   let isResponseSent = false;
 
   try {
@@ -47,21 +55,41 @@ router.post("/login", async (req, res) => {
 });
 
 // Forgot password route
-router.post("/forgot-password", forgotPassword);
+router.post("/forgot-password", forgotPasswordValidation, forgotPassword);
 
 // Reset password route
-router.post("/reset-password", resetPassword);
+router.post("/reset-password", resetPasswordValidation, resetPassword);
 
 router.get(
   "/google",
   passport.authenticate("google", { scope: ["profile", "email"] }),
 );
+const jwt = require("jsonwebtoken");
+
+// Helper to generate JWT and redirect with token
+const oauthCallback = (req, res) => {
+  if (!req.user) {
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/login?error=oauth_failed`,
+    );
+  }
+  // Generate JWT token with 30-day expiry
+  const token = jwt.sign({ userId: req.user.id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
+  // Redirect to frontend social-callback page with token
+  res.redirect(
+    `${process.env.FRONTEND_URL}/auth/social-callback?token=${token}`,
+  );
+};
+
 router.get(
   "/google/callback",
-  passport.authenticate("google", { failureRedirect: "/" }),
-  (req, res) => {
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
-  },
+  passport.authenticate("google", {
+    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_denied`,
+    session: false,
+  }),
+  oauthCallback,
 );
 
 router.get(
@@ -70,10 +98,11 @@ router.get(
 );
 router.get(
   "/github/callback",
-  passport.authenticate("github", { failureRedirect: "/" }),
-  (req, res) => {
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
-  },
+  passport.authenticate("github", {
+    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=github_denied`,
+    session: false,
+  }),
+  oauthCallback,
 );
 
 router.get(
@@ -82,10 +111,11 @@ router.get(
 );
 router.get(
   "/linkedin/callback",
-  passport.authenticate("linkedin", { failureRedirect: "/" }),
-  (req, res) => {
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
-  },
+  passport.authenticate("linkedin", {
+    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=linkedin_denied`,
+    session: false,
+  }),
+  oauthCallback,
 );
 
 router.get(
@@ -143,10 +173,7 @@ router.get(
 router.put(
   "/profile",
   passport.authenticate("jwt", { session: false }),
-  (req, res, next) => {
-    console.log("Profile update request received");
-    next();
-  },
+  updateProfileValidation,
   updateProfile,
 );
 
@@ -154,10 +181,7 @@ router.put(
 router.put(
   "/password",
   passport.authenticate("jwt", { session: false }),
-  (req, res, next) => {
-    console.log("Password update request received");
-    next();
-  },
+  updatePasswordValidation,
   updatePassword,
 );
 
