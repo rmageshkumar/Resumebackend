@@ -66,6 +66,7 @@ if (missingCritical.length > 0) {
 require("./config/db"); // Connect to MySQL
 require("./config/passport"); // Load Passport strategies (guarded inside the module)
 const resumeRoutes = require("./routes/resumeRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 const allowedOrigins = [
   "http://localhost:3000",
@@ -139,6 +140,7 @@ app.use("/api/resumes", resumeRoutes);
 app.use("/api/user-resume", resumeRoutes);
 app.use("/api/resumes/user-resumes", resumeRoutes);
 app.use("/api/create-resumes", resumeRoutes);
+app.use("/api/admin", apiLimiter, adminRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
