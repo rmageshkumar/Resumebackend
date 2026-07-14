@@ -14,20 +14,32 @@ exports.getDashboardStats = async (req, res) => {
     const [[resumeCount]] = await pool.query(
       "SELECT COUNT(*) AS total FROM user_resumes",
     );
-    const [[revenueRaw]] = await pool.query(
-      "SELECT COUNT(*) AS total FROM template_purchases",
-    );
-    const [[activeSubscriptions]] = await pool.query(
-      "SELECT COUNT(*) AS total FROM users WHERE subscription_status = 'active'",
-    );
-    const [[trialUsers]] = await pool.query(
-      "SELECT COUNT(*) AS total FROM users WHERE subscription_plan = 'free'",
-    );
+
+    // These columns may not exist in older databases
+    let activeSubscriptions = { total: 0 };
+    let trialUsers = { total: 0 };
+    try {
+      [activeSubscriptions] = await pool.query(
+        "SELECT COUNT(*) AS total FROM users WHERE subscription_status = 'active'",
+      );
+    } catch (_) {}
+    try {
+      [trialUsers] = await pool.query(
+        "SELECT COUNT(*) AS total FROM users WHERE subscription_plan = 'free'",
+      );
+    } catch (_) {}
+
+    let purchases = { total: 0 };
+    try {
+      [purchases] = await pool.query(
+        "SELECT COUNT(*) AS total FROM template_purchases",
+      );
+    } catch (_) {}
 
     res.json({
       users: userCount.total,
       resumes: resumeCount.total,
-      purchases: revenueRaw.total,
+      purchases: purchases.total,
       activeSubscriptions: activeSubscriptions.total,
       trialUsers: trialUsers.total,
     });
@@ -44,7 +56,7 @@ exports.listUsers = async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let query =
-      "SELECT id, name, email, provider, subscription_plan, subscription_status, created_at FROM users";
+      "SELECT id, name, email, provider, COALESCE(subscription_plan, 'free') AS subscription_plan, COALESCE(subscription_status, 'inactive') AS subscription_status, created_at FROM users";
     let countQuery = "SELECT COUNT(*) AS total FROM users";
     const params = [];
     const countParams = [];
