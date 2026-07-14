@@ -83,7 +83,11 @@ exports.listUsers = async (req, res) => {
     });
   } catch (error) {
     console.error("Admin list users error:", error);
-    res.status(500).json({ message: "Failed to fetch users" });
+    res.status(500).json({
+      message: "Failed to fetch users",
+      error: error.message,
+      sql: error.sql,
+    });
   }
 };
 
