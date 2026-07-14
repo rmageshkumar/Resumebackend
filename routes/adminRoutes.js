@@ -49,4 +49,9 @@ router.get("/activity", adminController.getRecentActivity);
 // Grant admin privileges (admin only)
 router.post("/grant-admin", adminController.grantAdmin);
 
+// User management actions
+router.put("/users/:id/activate", adminController.activateUser);
+router.put("/users/:id/deactivate", adminController.deactivateUser);
+router.delete("/users/:id", adminController.deleteUser);
+
 module.exports = router;

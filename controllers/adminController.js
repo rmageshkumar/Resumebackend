@@ -91,6 +91,49 @@ exports.listUsers = async (req, res) => {
   }
 };
 
+// ── Activate User ──
+exports.activateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute("UPDATE users SET subscription_status = 'active' WHERE id = ?", [id]);
+    res.json({ success: true, message: "User activated" });
+  } catch (error) {
+    console.error("Activate user error:", error);
+    res.status(500).json({ message: "Failed to activate user" });
+  }
+};
+
+// ── Deactivate User ──
+exports.deactivateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute("UPDATE users SET subscription_status = 'inactive' WHERE id = ?", [id]);
+    res.json({ success: true, message: "User deactivated" });
+  } catch (error) {
+    console.error("Deactivate user error:", error);
+    res.status(500).json({ message: "Failed to deactivate user" });
+  }
+};
+
+// ── Delete User ──
+exports.deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Delete user's resume data first, then the user
+    await pool.execute("DELETE FROM user_resumes WHERE user_id = ?", [id]);
+    await pool.execute("DELETE FROM cover_letters WHERE user_id = ?", [id]);
+    await pool.execute("DELETE FROM template_purchases WHERE user_id = ?", [id]);
+    await pool.execute("DELETE FROM audit_logs WHERE user_id = ?", [id]);
+    await pool.execute("DELETE FROM users WHERE id = ?", [id]);
+    res.json({ success: true, message: "User deleted" });
+  } catch (error) {
+    console.error("Delete user error:", error);
+    res.status(500).json({ message: "Failed to delete user" });
+  }
+};
+  }
+};
+
 // ── Revenue Analytics ──
 exports.getRevenueAnalytics = async (req, res) => {
   try {
