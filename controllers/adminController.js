@@ -55,7 +55,7 @@ exports.listUsers = async (req, res) => {
     const { page = 1, limit = 20, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = "SELECT id, name, email, provider, created_at FROM users";
+    let query = "SELECT id, name, email, provider FROM users";
     let countQuery = "SELECT COUNT(*) AS total FROM users";
     const params = [];
     const countParams = [];
@@ -69,7 +69,7 @@ exports.listUsers = async (req, res) => {
       countParams.push(searchParam, searchParam);
     }
 
-    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+    query += " ORDER BY id DESC LIMIT ? OFFSET ?";
     params.push(parseInt(limit), offset);
 
     const [users] = await pool.query(query, params);
