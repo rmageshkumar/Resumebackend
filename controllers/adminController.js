@@ -55,8 +55,7 @@ exports.listUsers = async (req, res) => {
     const { page = 1, limit = 20, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let query =
-      "SELECT id, name, email, provider, COALESCE(subscription_plan, 'free') AS subscription_plan, COALESCE(subscription_status, 'inactive') AS subscription_status, created_at FROM users";
+    let query = "SELECT id, name, email, provider, created_at FROM users";
     let countQuery = "SELECT COUNT(*) AS total FROM users";
     const params = [];
     const countParams = [];
