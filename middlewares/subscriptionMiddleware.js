@@ -2,14 +2,38 @@ const User = require("../models/userModel");
 const pool = require("../config/db");
 
 /**
+ * Check if a user is an admin (bypasses all subscription checks).
+ */
+const isAdmin = async (userId) => {
+  try {
+    const [[user]] = await pool.query(
+      "SELECT is_admin FROM users WHERE id = ?",
+      [userId],
+    );
+    return user?.is_admin === 1;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Middleware to check if user has at least the required plan level.
- * Plan hierarchy: free < premium
+ * Plan hierarchy: free < premium. Admin users bypass all checks.
  */
 const requirePlan = (requiredPlan) => {
   return async (req, res, next) => {
     try {
+      const userId = req.user.userId || req.user.id;
+
+      // Admin bypass — full access
+      if (await isAdmin(userId)) {
+        const user = await User.findUserById(userId);
+        req.fullUser = user;
+        return next();
+      }
+
       // Get fresh user data from DB (don't rely on JWT payload)
-      const user = await User.findUserById(req.user.userId || req.user.id);
+      const user = await User.findUserById(userId);
 
       if (!user) {
         return res.status(401).json({ message: "User not found" });
@@ -58,10 +82,20 @@ const requirePlan = (requiredPlan) => {
 
 /**
  * Middleware to check resume creation quota for free plan users.
+ * Admin users bypass quota limits.
  */
 const checkResumeQuota = async (req, res, next) => {
   try {
-    const user = await User.findUserById(req.user.userId || req.user.id);
+    const userId = req.user.userId || req.user.id;
+
+    // Admin bypass — unlimited resumes
+    if (await isAdmin(userId)) {
+      const user = await User.findUserById(userId);
+      req.fullUser = user;
+      return next();
+    }
+
+    const user = await User.findUserById(userId);
 
     if (!user) {
       return res.status(401).json({ message: "User not found" });
