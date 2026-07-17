@@ -55,7 +55,7 @@ exports.listUsers = async (req, res) => {
     const { page = 1, limit = 20, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = "SELECT id, name, email, provider FROM users";
+    let query = "SELECT id, name, email, provider, subscription_plan, subscription_status FROM users";
     let countQuery = "SELECT COUNT(*) AS total FROM users";
     const params = [];
     const countParams = [];
@@ -119,7 +119,6 @@ exports.deactivateUser = async (req, res) => {
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
-    // Delete user's resume data first, then the user
     await pool.execute("DELETE FROM user_resumes WHERE user_id = ?", [id]);
     await pool.execute("DELETE FROM cover_letters WHERE user_id = ?", [id]);
     await pool.execute("DELETE FROM template_purchases WHERE user_id = ?", [id]);
@@ -131,6 +130,33 @@ exports.deleteUser = async (req, res) => {
     res.status(500).json({ message: "Failed to delete user" });
   }
 };
+
+// ── Update User Subscription ──
+exports.updateSubscription = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subscription_plan, subscription_status } = req.body;
+    const updates = [];
+    const values = [];
+
+    if (subscription_plan !== undefined) {
+      updates.push("subscription_plan = ?");
+      values.push(subscription_plan);
+    }
+    if (subscription_status !== undefined) {
+      updates.push("subscription_status = ?");
+      values.push(subscription_status);
+    }
+    if (updates.length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    values.push(id);
+    await pool.execute(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`, values);
+    res.json({ success: true, message: "Subscription updated" });
+  } catch (error) {
+    console.error("Update subscription error:", error);
+    res.status(500).json({ message: "Failed to update subscription" });
   }
 };
 

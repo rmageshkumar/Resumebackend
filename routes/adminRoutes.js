@@ -53,5 +53,6 @@ router.post("/grant-admin", adminController.grantAdmin);
 router.put("/users/:id/activate", adminController.activateUser);
 router.put("/users/:id/deactivate", adminController.deactivateUser);
 router.delete("/users/:id", adminController.deleteUser);
+router.put("/users/:id/subscription", adminController.updateSubscription);
 
 module.exports = router;
