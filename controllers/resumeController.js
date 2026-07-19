@@ -227,6 +227,7 @@ exports.updateResumeDetail = async (req, res) => {
       email,
       summery, // Fixed spelling
       themeColor,
+      template,
     } = req.body;
 
     // // Check if the resume exists and belongs to the user
@@ -261,6 +262,48 @@ exports.updateResumeDetail = async (req, res) => {
       (fields.push("summery = ?"), values.push(summery));
     if (themeColor !== undefined)
       (fields.push("theme_color = ?"), values.push(themeColor));
+    // Handle themeColor/theme_color sent via { data: ... } wrapper (from ThemeColor component)
+    const themeColorFromData =
+      req.body.data?.themeColor || req.body.data?.theme_color;
+    if (themeColorFromData !== undefined && themeColor === undefined)
+      (fields.push("theme_color = ?"), values.push(themeColorFromData));
+    // Handle template (sent via auto-save or template dialog - may be in req.body.data)
+    const templateVal = template || req.body.data?.template;
+    if (templateVal !== undefined)
+      (fields.push("template = ?"), values.push(templateVal));
+
+    // Save custom sections via auto-save (bulk DELETE+INSERT) if present.
+    // This uses the same approach as SaveCustomSections, so no stale-ID issues.
+    const customSections =
+      req.body.data?.customSections || req.body.customSections;
+    if (customSections && Array.isArray(customSections)) {
+      try {
+        const [resumeRows] = await pool.query(
+          "SELECT id FROM user_resumes WHERE resume_id = ? AND user_id = ?",
+          [id, userId],
+        );
+        if (resumeRows.length > 0) {
+          const resumeDbId = resumeRows[0].id;
+          await pool.query(
+            "DELETE FROM resume_custom_sections WHERE resume_id = ?",
+            [resumeDbId],
+          );
+          if (customSections.length > 0) {
+            const vals = customSections.map((s) => [
+              resumeDbId,
+              s.title,
+              s.content,
+            ]);
+            await pool.query(
+              "INSERT INTO resume_custom_sections (resume_id, title, content) VALUES ?",
+              [vals],
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to save custom sections during update:", err);
+      }
+    }
 
     // Ensure `updated_at` is updated
     fields.push("updated_at = ?");
@@ -442,48 +485,32 @@ exports.saveCustomSections = async (req, res) => {
       });
     }
 
-    // Check if the resume exists and belongs to the user
-    const isOwner = await checkResumeOwnership(id, userId);
-    if (!isOwner) {
+    // Resolve the numeric resume ID from the UUID
+    const [resumeResults] = await pool.query(
+      "SELECT id FROM user_resumes WHERE resume_id = ? AND user_id = ?",
+      [id, userId],
+    );
+    if (resumeResults.length === 0) {
       return res.status(404).json({ message: "Resume not found" });
     }
+    const resumeDbId = resumeResults[0].id;
 
-    // First, delete existing custom sections
-    await new Promise((resolve, reject) => {
-      pool.query(
-        "DELETE FROM resume_custom_sections WHERE resume_id = ?",
-        [id],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
-    });
+    // Delete existing custom sections using numeric ID
+    await pool.query("DELETE FROM resume_custom_sections WHERE resume_id = ?", [
+      resumeDbId,
+    ]);
 
-    // Then insert the new custom sections
+    // Insert the new custom sections
     if (customSections.length > 0) {
       const values = customSections.map((section) => [
-        id,
+        resumeDbId,
         section.title,
         section.content,
       ]);
-
-      await new Promise((resolve, reject) => {
-        pool.query(
-          "INSERT INTO resume_custom_sections (resume_id, title, content) VALUES ?",
-          [values],
-          (err, results) => {
-            if (err) {
-              console.error("Database error:", err);
-              return reject(err);
-            }
-            resolve(results);
-          },
-        );
-      });
+      await pool.query(
+        "INSERT INTO resume_custom_sections (resume_id, title, content) VALUES ?",
+        [values],
+      );
     }
 
     res.json({ message: "Custom sections updated successfully" });
@@ -503,12 +530,19 @@ exports.addEducation = async (req, res) => {
     const userId = req.user.id;
     const { school, degree, fieldOfStudy, startDate, endDate, description } =
       req.body;
+    // Support both camelCase and snake_case from frontend
+    const finalSchool = school || req.body.school;
+    const finalDegree = degree || req.body.degree;
+    const finalFieldOfStudy = fieldOfStudy || req.body.field_of_study;
+    const finalStartDate = startDate || req.body.start_date || null;
+    const finalEndDate = endDate || req.body.end_date || null;
+    const finalDescription = description || req.body.description || null;
 
     console.log("Adding education with data:", req.body);
     console.log("Resume ID:", id);
 
     // Validate required fields
-    if (!school || !degree) {
+    if (!finalSchool || !finalDegree) {
       return res
         .status(400)
         .json({ message: "School and degree are required" });
@@ -534,12 +568,12 @@ exports.addEducation = async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         resumeDbId,
-        school,
-        degree,
-        fieldOfStudy || null,
-        startDate || null,
-        endDate || null,
-        description || null,
+        finalSchool,
+        finalDegree,
+        finalFieldOfStudy,
+        finalStartDate,
+        finalEndDate,
+        finalDescription,
       ],
     );
 
@@ -568,6 +602,11 @@ exports.updateEducation = async (req, res) => {
     const userId = req.user.id;
     const { school, degree, fieldOfStudy, startDate, endDate, description } =
       req.body;
+    // Support both camelCase and snake_case
+    const finalFieldOfStudy = fieldOfStudy || req.body.field_of_study;
+    const finalStartDate = startDate || req.body.start_date;
+    const finalEndDate = endDate || req.body.end_date;
+    const finalDescription = description || req.body.description;
 
     console.log("Updating education:", {
       id,
@@ -603,24 +642,24 @@ exports.updateEducation = async (req, res) => {
       values.push(degree);
     }
 
-    if (fieldOfStudy !== undefined) {
+    if (fieldOfStudy !== undefined || req.body.field_of_study !== undefined) {
       fields.push("field_of_study = ?");
-      values.push(fieldOfStudy);
+      values.push(finalFieldOfStudy);
     }
 
-    if (startDate !== undefined) {
+    if (startDate !== undefined || req.body.start_date !== undefined) {
       fields.push("start_date = ?");
-      values.push(startDate);
+      values.push(finalStartDate);
     }
 
-    if (endDate !== undefined) {
+    if (endDate !== undefined || req.body.end_date !== undefined) {
       fields.push("end_date = ?");
-      values.push(endDate);
+      values.push(finalEndDate);
     }
 
-    if (description !== undefined) {
+    if (description !== undefined || req.body.description !== undefined) {
       fields.push("description = ?");
-      values.push(description);
+      values.push(finalDescription);
     }
 
     // If no fields to update, return early

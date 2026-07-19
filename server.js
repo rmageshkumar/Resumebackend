@@ -13,14 +13,16 @@ const authRoutes = require("./routes/authRoutes");
 const billingRoutes = require("./routes/billingRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const resumeParserRoutes = require("./routes/resumeParserRoutes");
+const cmsRoutes = require("./routes/cmsRoutes");
 
 // Rate limiters
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
+  max: 100,
   message: { message: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful requests
 });
 
 const aiLimiter = rateLimit({
@@ -33,7 +35,7 @@ const aiLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+  max: 500,
   message: { message: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -141,6 +143,7 @@ app.use("/api/user-resume", resumeRoutes);
 app.use("/api/resumes/user-resumes", resumeRoutes);
 app.use("/api/create-resumes", resumeRoutes);
 app.use("/api/admin", apiLimiter, adminRoutes);
+app.use("/api", cmsRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });

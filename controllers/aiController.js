@@ -183,17 +183,18 @@ const getHeaderText = (text) => {
     /\b(summary|professional summary|profile|objective|experience|work experience|professional experience|employment history|work history|education|academic background|academics|skills|technical skills|core skills|key skills)\b/i,
   );
 
-  return (firstSectionIndex === -1 ? text : text.slice(0, firstSectionIndex)).slice(
-    0,
-    300,
-  );
+  return (
+    firstSectionIndex === -1 ? text : text.slice(0, firstSectionIndex)
+  ).slice(0, 300);
 };
 
 const extractPersonalDetails = (text, lines) => {
   const email = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
   const phone =
-    text.match(/(?:\+?\d[\d\s().-]{8,}\d)/)?.[0]?.replace(/\s+/g, " ").trim() ||
-    "";
+    text
+      .match(/(?:\+?\d[\d\s().-]{8,}\d)/)?.[0]
+      ?.replace(/\s+/g, " ")
+      .trim() || "";
   const headerText = getHeaderText(text)
     .replace(email, "")
     .replace(phone, "")
@@ -201,25 +202,26 @@ const extractPersonalDetails = (text, lines) => {
     .trim();
 
   const firstContentLine =
-    lines.slice(0, 8).find(
-      (line) =>
-        line.length <= 80 &&
-        !line.includes(",") &&
-        !line.includes("@") &&
-        !/\d[\d\s().-]{8,}\d/.test(line) &&
-        !isSectionHeading(line) &&
-        !/[.!?]$/.test(line) &&
-        line.split(/\s+/).length <= 5,
-    ) || "";
+    lines
+      .slice(0, 8)
+      .find(
+        (line) =>
+          line.length <= 80 &&
+          !line.includes(",") &&
+          !line.includes("@") &&
+          !/\d[\d\s().-]{8,}\d/.test(line) &&
+          !isSectionHeading(line) &&
+          !/[.!?]$/.test(line) &&
+          line.split(/\s+/).length <= 5,
+      ) || "";
 
-  const headerName =
-    headerText
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 5)
-      .join(" ")
-      .replace(/[|,;]+$/g, "")
-      .trim();
+  const headerName = headerText
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(" ")
+    .replace(/[|,;]+$/g, "")
+    .trim();
   const nameSource = firstContentLine || headerName;
   const { firstName, lastName } = splitName(nameSource);
   const summaryLines = getSection(lines, "summary");
@@ -284,7 +286,10 @@ const parseDateRange = (line) => {
   const datePattern =
     "(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?\\s+)?\\d{4}";
   const match = line.match(
-    new RegExp(`(${datePattern})\\s*(?:-|–|to)\\s*(present|current|${datePattern})`, "i"),
+    new RegExp(
+      `(${datePattern})\\s*(?:-|–|to)\\s*(present|current|${datePattern})`,
+      "i",
+    ),
   );
 
   if (!match) {
@@ -307,7 +312,9 @@ const extractExperience = (lines) => {
   let current = null;
 
   for (const line of experienceLines) {
-    const hasDateRange = /\d{4}.*(?:-|–|to).*?(?:\d{4}|present|current)/i.test(line);
+    const hasDateRange = /\d{4}.*(?:-|–|to).*?(?:\d{4}|present|current)/i.test(
+      line,
+    );
     const looksLikeTitle =
       !line.startsWith("-") &&
       !line.startsWith("•") &&
@@ -318,7 +325,10 @@ const extractExperience = (lines) => {
       if (current) entries.push(current);
       const dates = parseDateRange(line);
       const cleaned = line
-        .replace(/\(?\b(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+)?\d{4}\s*(?:-|–|to)\s*(?:present|current|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+)?\d{4}).*$/i, "")
+        .replace(
+          /\(?\b(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+)?\d{4}\s*(?:-|–|to)\s*(?:present|current|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+)?\d{4}).*$/i,
+          "",
+        )
         .trim();
       const [title = "", companyName = ""] = cleaned.split(/\s+at\s+| - |,/i);
 
@@ -347,7 +357,11 @@ const extractEducation = (lines) => {
     /\b(bachelor|master|mba|b\.?tech|m\.?tech|b\.?e\.?|m\.?e\.?|b\.?s\.?|m\.?s\.?|ph\.?d|diploma|degree)\b/i;
 
   return educationLines
-    .filter((line) => degreeRegex.test(line) || /\b(university|college|institute)\b/i.test(line))
+    .filter(
+      (line) =>
+        degreeRegex.test(line) ||
+        /\b(university|college|institute)\b/i.test(line),
+    )
     .slice(0, 6)
     .map((line) => {
       const dates = parseDateRange(line);
@@ -374,7 +388,8 @@ const analyzeResumeLocally = (resumeText) => {
 };
 
 const analyzeResumeWithAi = async (resumeText) => {
-  const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY;
+  const apiKey =
+    process.env.GOOGLE_AI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY;
   if (!apiKey) {
     throw new Error(
       "Google AI API key is not configured. Set GOOGLE_AI_API_KEY in the backend .env file.",
@@ -383,7 +398,7 @@ const analyzeResumeWithAi = async (resumeText) => {
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
-    model: process.env.GOOGLE_AI_MODEL || "gemini-2.0-flash",
+    model: process.env.GOOGLE_AI_MODEL || "gemini-3.5-flash",
   });
 
   const result = await model.generateContent({

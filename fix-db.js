@@ -1,28 +1,37 @@
-const pool = require("./config/db");
+const mysql = require("mysql2/promise");
+const bcrypt = require("bcryptjs");
+(async () => {
+  const conn = await mysql.createConnection({
+    host: "localhost",
+    user: "root",
+    password: "12345678",
+    database: "prosummo_db",
+    socketPath: "/tmp/mysql.sock",
+  });
+  const [rows] = await conn.query(
+    "SELECT id, name, email FROM users WHERE email = ?",
+    ["mageshkumar.it@gmail.com"],
+  );
+  console.log("Found user:", rows[0]);
 
-async function fixDatabase() {
-  console.log("=== Fixing database...");
-  try {
-    console.log("\n1. Checking current users table columns:");
-    const [cols] = await pool.execute("DESCRIBE users");
-    console.log(cols.map((c) => "   - " + c.Field));
-
-    const hasProfileImage = cols.some((c) => c.Field === "profileImage");
-
-    if (!hasProfileImage) {
-      console.log("\n2. Adding profileImage column...");
-      await pool.execute("ALTER TABLE users ADD COLUMN profileImage TEXT");
-      console.log("✅ profileImage column added successfully!");
+  const [urows] = await conn.query(
+    "SELECT password FROM users WHERE email = ?",
+    ["mageshkumar.it@gmail.com"],
+  );
+  if (urows.length > 0) {
+    const match = await bcrypt.compare("12345678", urows[0].password);
+    console.log("Password 12345678 matches:", match);
+    if (!match) {
+      const salt = await bcrypt.genSalt(10);
+      const hash = await bcrypt.hash("12345678", salt);
+      await conn.query("UPDATE users SET password = ? WHERE email = ?", [
+        hash,
+        "mageshkumar.it@gmail.com",
+      ]);
+      console.log("Password updated!");
     } else {
-      console.log("\n2. profileImage column already exists!");
+      console.log("Password already correct");
     }
-
-    console.log("\n✅ Database is ready!");
-    process.exit(0);
-  } catch (error) {
-    console.error("\n❌ Error:", error);
-    process.exit(1);
   }
-}
-
-fixDatabase();
+  await conn.end();
+})().catch((e) => console.error(e.message));

@@ -3,6 +3,8 @@ const passport = require("passport");
 const {
   login,
   register,
+  checkEmail,
+  refreshToken,
   updateProfile,
   updatePassword,
   forgotPassword,
@@ -53,6 +55,12 @@ router.post("/login", loginValidation, async (req, res) => {
     }
   }
 });
+
+// Check email availability
+router.get("/check-email", checkEmail);
+
+// Token refresh
+router.post("/refresh", refreshToken);
 
 // Forgot password route
 router.post("/forgot-password", forgotPasswordValidation, forgotPassword);

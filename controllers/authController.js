@@ -51,11 +51,15 @@ exports.register = async (req, res) => {
         },
       );
 
-      sendActivationEmail(normalizedEmail, activationToken).catch((mailError) => {
-        console.error("Activation email failed:", mailError.message);
-      });
+      sendActivationEmail(normalizedEmail, activationToken).catch(
+        (mailError) => {
+          console.error("Activation email failed:", mailError.message);
+        },
+      );
     } else {
-      console.warn("Email credentials not configured; skipping activation email.");
+      console.warn(
+        "Email credentials not configured; skipping activation email.",
+      );
     }
 
     return response;
@@ -179,9 +183,25 @@ exports.updatePassword = async (req, res) => {
     res.json({ message: "Password updated successfully" });
   } catch (error) {
     console.error("Error updating password:", error);
-    res
-      .status(500)
-      .json({ message: "Failed to update password", error: error.message });
+    res.status(500).json({ message: "Failed to update password", error: error.message });
+  }
+};
+
+// Refresh token endpoint
+exports.refreshToken = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "No token provided" });
+    }
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+    const user = await User.findUserById(decoded.userId || decoded.id);
+    if (!user) return res.status(401).json({ message: "User not found" });
+    const newToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token: newToken, user: { id: user.id, name: user.name, email: user.email } });
+  } catch (error) {
+    return res.status(401).json({ message: "Invalid token" });
   }
 };
 
@@ -252,5 +272,20 @@ exports.resetPassword = async (req, res) => {
   } catch (error) {
     console.error("Error in reset password:", error);
     res.status(500).json({ message: "Failed to reset password" });
+  }
+};
+
+// Check if email is already registered
+exports.checkEmail = async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+    const user = await User.findUserByEmail(email.trim());
+    res.json({ available: !user });
+  } catch (error) {
+    console.error("Error checking email:", error);
+    res.status(500).json({ message: "Failed to check email availability" });
   }
 };
