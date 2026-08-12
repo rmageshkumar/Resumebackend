@@ -49,6 +49,22 @@ const parserLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const resumeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300,
+  message: { message: "Too many resume requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const cmsPublicLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Contact form submissions
+  message: { message: "Too many requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Basic env validation
 const missingCritical = [];
 if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_NAME) {
@@ -110,12 +126,24 @@ app.use(
 
 app.use(cookieParser());
 
+// Trust proxy for secure cookies behind reverse proxies (Nginx, Cloudflare, etc.)
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
+const isProduction = process.env.NODE_ENV === "production";
+
 app.use(
   session({
-    secret: process.env.JWT_SECRET,
+    secret: process.env.SESSION_SECRET || process.env.JWT_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }, // Set secure: true in production with HTTPS
+    cookie: {
+      secure: isProduction, // Only send over HTTPS in production
+      httpOnly: true, // Prevent client-side JS from reading cookie
+      sameSite: isProduction ? "strict" : "lax", // CSRF protection
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
   }),
 );
 
@@ -138,12 +166,12 @@ app.get("/", (req, res) => {
   res.send("Welcome to the Authentication API!");
 });
 
-app.use("/api/resumes", resumeRoutes);
-app.use("/api/user-resume", resumeRoutes);
-app.use("/api/resumes/user-resumes", resumeRoutes);
-app.use("/api/create-resumes", resumeRoutes);
+app.use("/api/resumes", resumeLimiter, resumeRoutes);
+app.use("/api/user-resume", resumeLimiter, resumeRoutes);
+app.use("/api/resumes/user-resumes", resumeLimiter, resumeRoutes);
+app.use("/api/create-resumes", resumeLimiter, resumeRoutes);
 app.use("/api/admin", apiLimiter, adminRoutes);
-app.use("/api", cmsRoutes);
+app.use("/api", cmsPublicLimiter, cmsRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
