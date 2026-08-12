@@ -1,6 +1,79 @@
 const pool = require("../config/db");
 const { v4: uuidv4 } = require("uuid");
 
+/**
+ * Ensure the slug column exists (auto-migration on startup)
+ */
+(async function ensureSlugColumn() {
+  try {
+    await pool.query("SELECT slug FROM user_resumes LIMIT 1");
+  } catch (err) {
+    if (err.code === "ER_BAD_FIELD_ERROR") {
+      console.log("⚙️  Auto-creating slug column in user_resumes...");
+      try {
+        await pool.query(
+          "ALTER TABLE user_resumes ADD COLUMN slug VARCHAR(255) NULL, ADD UNIQUE INDEX idx_slug_unique (slug)",
+        );
+        console.log("✅ slug column created successfully");
+      } catch (alterErr) {
+        if (
+          alterErr.code === "ER_DUP_FIELDNAME" ||
+          alterErr.code === "ER_DUP_KEYNAME"
+        ) {
+          console.log("ℹ️  slug column or index already exists");
+        } else {
+          console.error("❌ Failed to create slug column:", alterErr.message);
+        }
+      }
+    }
+  }
+})();
+
+/**
+ * Slugify a string for URL use
+ */
+const slugify = (text) => {
+  if (!text) return "";
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w-]+/g, "")
+    .replace(/--+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "")
+    .substring(0, 100);
+};
+
+/**
+ * Generate a unique slug for a resume
+ */
+const generateUniqueSlug = async (baseSlug) => {
+  let slug = baseSlug || "resume";
+  let counter = 0;
+  let unique = false;
+
+  while (!unique && counter < 100) {
+    const candidate = counter === 0 ? slug : `${slug}-${counter}`;
+    try {
+      const [rows] = await pool.query(
+        "SELECT id FROM user_resumes WHERE slug = ?",
+        [candidate],
+      );
+      if (rows.length === 0) {
+        return candidate;
+      }
+      counter++;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  // Ultimate fallback
+  return `${slug}-${Date.now().toString(36)}`;
+};
+
 // Helper function to check resume ownership
 const checkResumeOwnership = async (resumeId, userId) => {
   console.log("Checking resume ownership for resume ID:", resumeId);
@@ -56,12 +129,18 @@ exports.createResume = async (req, res) => {
 
     const resumeId = uuidv4();
 
+    // Auto-generate a friendly slug
+    const baseSlug =
+      slugify([firstName, lastName, title].filter(Boolean).join("-")) ||
+      resumeId.substring(0, 8);
+    const slug = await generateUniqueSlug(baseSlug);
+
     // Insert resume using `pool.execute`
     const [result] = await pool.execute(
       `INSERT INTO user_resumes 
       (title, user_email, user_name, resume_id, first_name, last_name, job_title, 
-      address, phone, email, summery, theme_color, template, published, user_id) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      address, phone, email, summery, theme_color, template, published, slug, user_id) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title,
         req.user.email,
@@ -77,6 +156,7 @@ exports.createResume = async (req, res) => {
         themeColor || null,
         template,
         true,
+        slug,
         userId,
       ],
     );
@@ -87,6 +167,7 @@ exports.createResume = async (req, res) => {
       message: "✅ Resume created successfully",
       resumeId: result.insertId,
       resumeUid: resumeId,
+      slug,
     });
   } catch (error) {
     console.error("❌ Error creating resume:", error);
@@ -228,6 +309,7 @@ exports.updateResumeDetail = async (req, res) => {
       summery, // Fixed spelling
       themeColor,
       template,
+      slug: customSlug,
     } = req.body;
 
     // // Check if the resume exists and belongs to the user
@@ -271,6 +353,30 @@ exports.updateResumeDetail = async (req, res) => {
     const templateVal = template || req.body.data?.template;
     if (templateVal !== undefined)
       (fields.push("template = ?"), values.push(templateVal));
+
+    // Handle slug updates — validate uniqueness
+    const slugVal = customSlug || req.body.data?.slug;
+    if (slugVal !== undefined && slugVal !== null) {
+      const cleanSlug = slugify(slugVal);
+      if (cleanSlug && cleanSlug.length >= 3) {
+        // Check uniqueness (exclude current resume)
+        const [existing] = await pool.query(
+          "SELECT id FROM user_resumes WHERE slug = ? AND resume_id != ?",
+          [cleanSlug, id],
+        );
+        if (existing.length > 0) {
+          return res.status(409).json({
+            message:
+              "This URL is already taken. Please choose a different one.",
+          });
+        }
+        (fields.push("slug = ?"), values.push(cleanSlug));
+      } else if (cleanSlug && cleanSlug.length < 3) {
+        return res.status(400).json({
+          message: "URL slug must be at least 3 characters long.",
+        });
+      }
+    }
 
     // Save custom sections via auto-save (bulk DELETE+INSERT) if present.
     // This uses the same approach as SaveCustomSections, so no stale-ID issues.
@@ -1696,155 +1802,86 @@ exports.getPublicResume = async (req, res) => {
     const { uuid } = req.params;
 
     if (!uuid) {
-      return res.status(400).json({ message: "Resume UUID is required" });
+      return res.status(400).json({ message: "Resume identifier is required" });
     }
 
-    // Get the resume
-    const resume = await new Promise((resolve, reject) => {
-      pool.query(
-        "SELECT * FROM user_resumes WHERE resume_id = ? AND published = true",
-        [uuid],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-
-          if (results.length === 0) {
-            return reject(new Error("Resume not found or not published"));
-          }
-
-          resolve(results[0]);
-        },
+    // Determine if the param is a UUID or a slug
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        uuid,
       );
-    });
+    const whereClause = isUuid
+      ? "resume_id = ? AND published = true"
+      : "slug = ? AND published = true";
 
-    // Get all resume components
+    // Get the resume (promise-based, no callback wrapping)
+    const [resumeRows] = await pool.query(
+      `SELECT * FROM user_resumes WHERE ${whereClause}`,
+      [uuid],
+    );
+
+    if (resumeRows.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "Resume not found or not published" });
+    }
+
+    const resume = resumeRows[0];
     const resumeId = resume.id;
 
-    // Get education
-    const education = await new Promise((resolve, reject) => {
+    // Fetch all sub-tables in parallel
+    const [
+      [education],
+      [experience],
+      [skills],
+      [languages],
+      [certifications],
+      [customSections],
+    ] = await Promise.all([
       pool.query(
         "SELECT * FROM resume_education WHERE resume_id = ? ORDER BY end_date DESC",
         [resumeId],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
-    });
-
-    // Get experience
-    const experience = await new Promise((resolve, reject) => {
+      ),
       pool.query(
         "SELECT * FROM resume_experience WHERE resume_id = ? ORDER BY end_date DESC",
         [resumeId],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
-    });
-
-    // Get skills
-    const skills = await new Promise((resolve, reject) => {
+      ),
       pool.query(
         "SELECT * FROM resume_skills WHERE resume_id = ? ORDER BY level DESC",
         [resumeId],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
-    });
-
-    // Get languages
-    const languages = await new Promise((resolve, reject) => {
-      pool.query(
-        "SELECT * FROM resume_language WHERE resume_id = ?",
-        [resumeId],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
-    });
-
-    // Get certifications
-    const certifications = await new Promise((resolve, reject) => {
+      ),
+      pool.query("SELECT * FROM resume_language WHERE resume_id = ?", [
+        resumeId,
+      ]),
       pool.query(
         "SELECT * FROM resume_certifications WHERE resume_id = ? ORDER BY issue_date DESC",
         [resumeId],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
+      ),
+      pool.query("SELECT * FROM resume_custom_sections WHERE resume_id = ?", [
+        resumeId,
+      ]),
+    ]);
+
+    // Track the view (fire-and-forget, don't block response)
+    const source = req.query.source || req.get("Referer") || null;
+    pool
+      .query(
+        "INSERT INTO resume_views (resume_id, view_date, source) VALUES (?, NOW(), ?)",
+        [resumeId, source],
+      )
+      .catch(() => {});
+
+    res.json({
+      resume: {
+        ...resume,
+        education,
+        experience,
+        skills,
+        languages,
+        certifications,
+        customSections,
+      },
     });
-
-    // Get custom sections
-    const customSections = await new Promise((resolve, reject) => {
-      pool.query(
-        "SELECT * FROM resume_custom_sections WHERE resume_id = ?",
-        [resumeId],
-        (err, results) => {
-          if (err) {
-            console.error("Database error:", err);
-            return reject(err);
-          }
-          resolve(results);
-        },
-      );
-    });
-
-    // Track this view
-    try {
-      const source = req.query.source || req.get("Referer") || null;
-      await new Promise((resolve, reject) => {
-        pool.query(
-          "INSERT INTO resume_views (resume_id, view_date, source) VALUES (?, NOW(), ?)",
-          [resumeId, source],
-          (err, results) => {
-            if (err) {
-              console.error("Error tracking view:", err);
-              // Don't reject, just log the error
-            }
-            resolve();
-          },
-        );
-      });
-    } catch (viewError) {
-      console.error("Error tracking view:", viewError);
-      // Continue execution even if tracking fails
-    }
-
-    // Combine all data
-    const completeResume = {
-      ...resume,
-      education,
-      experience,
-      skills,
-      languages,
-      certifications,
-      customSections,
-    };
-
-    res.json({ resume: completeResume });
   } catch (error) {
     console.error("Error fetching public resume:", error);
     res.status(404).json({ message: "Resume not found or not published" });
@@ -2600,6 +2637,117 @@ exports.deleteCustomSection = async (req, res) => {
     console.error("Error deleting custom section:", error);
     res.status(500).json({
       message: "Failed to delete custom section",
+      error: error.message,
+    });
+  }
+};
+
+// Check if a custom slug is available
+exports.checkSlugAvailability = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { excludeResumeId } = req.query; // Optional: exclude current resume
+
+    if (!slug || slug.length < 3) {
+      return res.status(400).json({
+        available: false,
+        message: "Slug must be at least 3 characters long.",
+      });
+    }
+
+    // Only allow alphanumeric and hyphens
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      return res.status(400).json({
+        available: false,
+        message:
+          "Slug can only contain lowercase letters, numbers, and hyphens.",
+      });
+    }
+
+    let query = "SELECT id FROM user_resumes WHERE slug = ?";
+    const params = [slug];
+
+    if (excludeResumeId) {
+      query += " AND resume_id != ?";
+      params.push(excludeResumeId);
+    }
+
+    const [rows] = await pool.query(query, params);
+
+    res.json({
+      available: rows.length === 0,
+      slug,
+    });
+  } catch (error) {
+    console.error("Error checking slug availability:", error);
+    res.status(500).json({
+      message: "Failed to check slug availability",
+      error: error.message,
+    });
+  }
+};
+
+// Update resume slug (dedicated endpoint)
+exports.updateResumeSlug = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { slug: newSlug } = req.body;
+
+    if (!newSlug || typeof newSlug !== "string") {
+      return res.status(400).json({ message: "A valid slug is required." });
+    }
+
+    const cleanSlug = slugify(newSlug);
+
+    if (cleanSlug.length < 3) {
+      return res.status(400).json({
+        message: "URL slug must be at least 3 characters long.",
+      });
+    }
+
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cleanSlug)) {
+      return res.status(400).json({
+        message:
+          "Slug can only contain lowercase letters, numbers, and hyphens.",
+      });
+    }
+
+    // Check ownership (using promise-based query)
+    const [resumeRows] = await pool.query(
+      "SELECT id FROM user_resumes WHERE resume_id = ? AND user_id = ?",
+      [id, userId],
+    );
+
+    if (resumeRows.length === 0) {
+      return res.status(404).json({ message: "Resume not found" });
+    }
+
+    // Check uniqueness (exclude current resume)
+    const [existing] = await pool.query(
+      "SELECT id FROM user_resumes WHERE slug = ? AND resume_id != ?",
+      [cleanSlug, id],
+    );
+
+    if (existing.length > 0) {
+      return res.status(409).json({
+        message: "This URL is already taken. Please choose a different one.",
+      });
+    }
+
+    await pool.query(
+      "UPDATE user_resumes SET slug = ?, updated_at = CURRENT_TIMESTAMP WHERE resume_id = ?",
+      [cleanSlug, id],
+    );
+
+    res.json({
+      message: "Resume URL updated successfully",
+      slug: cleanSlug,
+    });
+  } catch (error) {
+    console.error("Error updating resume slug:", error);
+    res.status(500).json({
+      message: "Failed to update resume URL",
       error: error.message,
     });
   }

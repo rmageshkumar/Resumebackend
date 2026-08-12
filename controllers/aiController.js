@@ -445,3 +445,86 @@ exports.analyzeResume = async (req, res) => {
     res.status(error?.status || 500).json({ message });
   }
 };
+
+const createJdPrompt = (resumeData, jobDescription) => {
+  const resumeText = JSON.stringify(resumeData, null, 2);
+  return `
+You are an expert resume analyst and career coach. Analyze how well the following resume matches the given job description.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "matchPercentage": 0,
+  "missingKeywords": [],
+  "suggestions": []
+}
+
+Rules:
+- matchPercentage: A number 0-100 estimating how well the resume matches the JD.
+- missingKeywords: Array of specific skills, tools, or technologies mentioned in the JD that are absent or weak in the resume (e.g., ["Docker", "Kubernetes", "AWS", "CI/CD"]).
+- suggestions: Array of actionable improvement tips, each prefixed with ✓ (e.g., ["✓ Add React Hooks experience", "✓ Mention Agile methodology", "✓ Add measurable achievements with metrics"]).
+- Be honest and critical — this is for a paid service that must deliver real value.
+- Return ONLY the JSON object, no markdown, no commentary.
+
+RESUME DATA:
+${resumeText}
+
+JOB DESCRIPTION:
+${jobDescription}
+`;
+};
+
+const analyzeJdWithAi = async (resumeData, jobDescription) => {
+  const apiKey =
+    process.env.GOOGLE_AI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Google AI API key is not configured.");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: process.env.GOOGLE_AI_MODEL || "gemini-3.5-flash",
+  });
+
+  const result = await model.generateContent({
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: createJdPrompt(resumeData, jobDescription) }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 8192,
+      responseMimeType: "application/json",
+    },
+  });
+
+  return parseModelJson(result.response.text());
+};
+
+exports.analyzeJobDescription = async (req, res) => {
+  try {
+    const { resumeData, jobDescription } = req.body;
+
+    if (!resumeData || !jobDescription) {
+      return res.status(400).json({
+        message: "resumeData and jobDescription are required",
+      });
+    }
+
+    const result = await analyzeJdWithAi(resumeData, jobDescription);
+
+    res.json(result);
+  } catch (error) {
+    console.error("JD analysis failed:", error);
+
+    const message =
+      error?.status === 429 || String(error?.message).includes("429")
+        ? "The AI service is rate limited. Please try again later."
+        : error?.message || "Failed to analyze job description";
+
+    res.status(error?.status || 500).json({ message });
+  }
+};

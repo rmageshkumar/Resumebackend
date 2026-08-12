@@ -55,6 +55,10 @@ router.post(
   auditMiddleware("resume.create", "resume"),
 );
 router.get("/", authenticate, resumeController.getUserResumes);
+
+// Slug availability check (must be BEFORE /:id catch-all route)
+router.get("/check-slug/:slug", resumeController.checkSlugAvailability);
+
 router.get("/:id([a-zA-Z0-9-]+)", authenticate, resumeController.getResumeById);
 router.put(
   "/user-resumes/:id",
@@ -162,8 +166,11 @@ router.delete(
 router.get("/analytics/:id", authenticate, resumeController.getResumeAnalytics);
 router.post("/analytics/view", resumeController.trackResumeView);
 
-// Public resume route (no auth required)
+// Public resume route (no auth required) — supports both UUID and slug
 router.get("/public/:uuid", resumeController.getPublicResume);
+
+// Update resume slug (authenticated)
+router.put("/:id/slug", authenticate, resumeController.updateResumeSlug);
 
 // Publish/unpublish resume
 router.put("/:id/publish", authenticate, resumeController.togglePublishStatus);

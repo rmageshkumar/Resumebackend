@@ -16,4 +16,12 @@ router.post(
   auditMiddleware("ai.analyze-resume", "resume"),
 );
 
+router.post(
+  "/analyze-job",
+  authenticate,
+  requirePlan("premium"),
+  aiController.analyzeJobDescription,
+  auditMiddleware("ai.analyze-job", "resume"),
+);
+
 module.exports = router;
